@@ -5,6 +5,7 @@ const state = {
     releases: [],         // Raw parsed release dates and updates
     allUpdatesMap: {},    // Map of uniqueUpdateId -> update details
     selectedUpdates: new Set(), // Set of selected update IDs
+    readUpdates: new Set(),     // Set of read update IDs
     filters: {
         search: '',
         types: new Set(['Feature', 'Issue', 'Change', 'Deprecated', 'Update'])
@@ -56,6 +57,7 @@ const CATEGORY_META = {
 // Initialize Application
 document.addEventListener('DOMContentLoaded', () => {
     initTheme();
+    initReadStatus();
     setupEventListeners();
     fetchReleases();
 });
@@ -156,13 +158,18 @@ async function fetchReleases(force = false) {
             
             // Render feed
             renderFeed();
+            if (force) {
+                showToast('Release notes synchronized!', 'success');
+            }
         } else {
             console.error("API error:", result.error);
             showErrorState(result.error);
+            showToast('Failed to sync release notes', 'error');
         }
     } catch (err) {
         console.error("Fetch network error:", err);
         showErrorState("Could not connect to the server. Please check your backend.");
+        showToast('Network error: server unreachable', 'error');
     } finally {
         elements.spinner.classList.remove('spinning');
         elements.btnRefresh.disabled = false;
@@ -309,8 +316,9 @@ function renderFeed() {
             
             const meta = CATEGORY_META[update.type] || CATEGORY_META['Update'];
             
+            const isRead = state.readUpdates.has(uniqueId);
             const card = document.createElement('div');
-            card.className = `update-card ${isSelected ? 'selected' : ''}`;
+            card.className = `update-card ${isSelected ? 'selected' : ''} ${isRead ? 'read' : ''}`;
             card.dataset.id = uniqueId;
             card.setAttribute('style', `
                 --type-color: ${meta.color};
@@ -323,16 +331,33 @@ function renderFeed() {
                     return; // Prevent selecting card when clicking links/actions
                 }
                 toggleCardSelection(uniqueId);
+                // Mark read on click
+                if (!isRead) {
+                    markAsRead(uniqueId);
+                }
             });
             
-            // Card Header: Badge & Select checkbox & Tweet icon
+            // Card Header: Grouped Badge & Unread Indicator
             const cardHeader = document.createElement('div');
             cardHeader.className = 'card-header-row';
+            
+            const badgeGroup = document.createElement('div');
+            badgeGroup.className = 'badge-group';
+            badgeGroup.style.display = 'flex';
+            badgeGroup.style.alignItems = 'center';
             
             const badge = document.createElement('span');
             badge.className = 'badge';
             badge.textContent = update.type;
-            cardHeader.appendChild(badge);
+            badgeGroup.appendChild(badge);
+            
+            if (!isRead) {
+                const unreadDot = document.createElement('span');
+                unreadDot.className = 'unread-indicator';
+                unreadDot.title = 'Unread update';
+                badgeGroup.appendChild(unreadDot);
+            }
+            cardHeader.appendChild(badgeGroup);
             
             const actions = document.createElement('div');
             actions.className = 'card-actions';
@@ -397,6 +422,9 @@ function renderFeed() {
         dayNode.appendChild(updatesContainer);
         elements.timelineFeed.appendChild(dayNode);
     });
+    
+    // Setup the read state observer for newly rendered cards
+    setupReadObserver();
 }
 
 // Toggle selection on a card
@@ -579,6 +607,7 @@ async function copyUpdateToClipboard(id, buttonEl) {
     
     try {
         await navigator.clipboard.writeText(textToCopy);
+        showToast('Update copied to clipboard!', 'success');
         
         // Show success visual state
         const originalHTML = buttonEl.innerHTML;
@@ -597,6 +626,7 @@ async function copyUpdateToClipboard(id, buttonEl) {
         }, 1500);
     } catch (err) {
         console.error('Failed to copy text: ', err);
+        showToast('Failed to copy to clipboard', 'error');
     }
 }
 
@@ -634,7 +664,7 @@ function exportFilteredToCSV() {
     });
     
     if (csvRows.length <= 1) {
-        alert('No matching updates to export.');
+        showToast('No matching updates to export', 'warning');
         return;
     }
     
@@ -651,6 +681,164 @@ function exportFilteredToCSV() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    
+    showToast('CSV Exported successfully!', 'success');
+}
+
+// Theme management utilities
+function initTheme() {
+    const savedTheme = localStorage.getItem('theme') || 'dark';
+    setTheme(savedTheme);
+}
+
+function setTheme(theme) {
+    document.body.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+    
+    if (theme === 'light') {
+        elements.themeMoon.style.display = 'none';
+        elements.themeSun.style.display = 'block';
+    } else {
+        elements.themeMoon.style.display = 'block';
+        elements.themeSun.style.display = 'none';
+    }
+}
+
+function toggleTheme() {
+    const currentTheme = document.body.getAttribute('data-theme') || 'dark';
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    setTheme(newTheme);
+}
+
+// Read status storage utilities
+function initReadStatus() {
+    try {
+        const savedRead = JSON.parse(localStorage.getItem('readUpdates')) || [];
+        state.readUpdates = new Set(savedRead);
+    } catch (e) {
+        console.error("Failed to load read status history", e);
+        state.readUpdates = new Set();
+    }
+}
+
+function markAsRead(cardId) {
+    if (state.readUpdates.has(cardId)) return;
+    state.readUpdates.add(cardId);
+    
+    try {
+        localStorage.setItem('readUpdates', JSON.stringify(Array.from(state.readUpdates)));
+    } catch (e) {
+        console.error("Failed to save read status history", e);
+    }
+    
+    // Smoothly update the visual state of the specific card
+    const cardEl = document.querySelector(`.update-card[data-id="${cardId}"]`);
+    if (cardEl) {
+        cardEl.classList.add('read');
+        const dot = cardEl.querySelector('.unread-indicator');
+        if (dot) {
+            dot.style.opacity = '0';
+            setTimeout(() => dot.remove(), 300); // Transition out smoothly
+        }
+    }
+}
+
+// Scroll Intersection Observer to automatically read cards in viewport
+function setupReadObserver() {
+    // Only observe cards that aren't already read
+    const cardsToObserve = Array.from(document.querySelectorAll('.update-card'))
+        .filter(card => !state.readUpdates.has(card.dataset.id));
+        
+    if (cardsToObserve.length === 0) return;
+
+    // Map cardId -> Timeout ID to prevent double triggers
+    const observerTimeouts = {};
+
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            const cardId = entry.target.dataset.id;
+            
+            if (entry.isIntersecting) {
+                // If visible in viewport, mark as read after 1 second
+                observerTimeouts[cardId] = setTimeout(() => {
+                    if (state.allUpdatesMap[cardId] && !state.readUpdates.has(cardId)) {
+                        markAsRead(cardId);
+                        observer.unobserve(entry.target);
+                    }
+                }, 1000);
+            } else {
+                // Cancel timeout if user scrolls past the card quickly
+                if (observerTimeouts[cardId]) {
+                    clearTimeout(observerTimeouts[cardId]);
+                    delete observerTimeouts[cardId];
+                }
+            }
+        });
+    }, { 
+        threshold: 0.5, // 50% visibility
+        rootMargin: '0px 0px -50px 0px' // Offset bottom viewport boundary
+    });
+
+    cardsToObserve.forEach(card => observer.observe(card));
+}
+
+// Glassmorphic Custom Toast Notification Engine
+function showToast(message, type = 'info') {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+    
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    
+    // Custom SVGs for Toast Icons
+    let iconHTML = '';
+    if (type === 'success') {
+        iconHTML = `
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+        `;
+    } else if (type === 'error') {
+        iconHTML = `
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#f43f5e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="15" y1="9" x2="9" y2="15"></line>
+                <line x1="9" y1="9" x2="15" y2="15"></line>
+            </svg>
+        `;
+    } else if (type === 'warning') {
+        iconHTML = `
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                <line x1="12" y1="9" x2="12" y2="13"></line>
+                <line x1="12" y1="17" x2="12.01" y2="17"></line>
+            </svg>
+        `;
+    } else {
+        iconHTML = `
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="var(--accent-blue)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="16" x2="12" y2="12"></line>
+                <line x1="12" y1="8" x2="12.01" y2="8"></line>
+            </svg>
+        `;
+    }
+    
+    toast.innerHTML = `
+        ${iconHTML}
+        <span>${message}</span>
+    `;
+    
+    container.appendChild(toast);
+    
+    // Trigger slide-up animation entry
+    setTimeout(() => toast.classList.add('show'), 50);
+    
+    // Auto-dismiss after 3.5 seconds
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300); // Wait for transition
+    }, 3500);
 }
 
 // Theme management utilities
