@@ -686,8 +686,8 @@ body {
     transform: rotate(45deg);
 }
 
-/* Single Tweet Button */
-.btn-card-tweet {
+/* Single Card Action Buttons */
+.btn-card-tweet, .btn-card-copy {
     background: transparent;
     border: none;
     color: var(--text-muted);
@@ -700,10 +700,11 @@ body {
     transition: var(--transition-fast);
 }
 
-.btn-card-tweet:hover {
+.btn-card-tweet:hover, .btn-card-copy:hover {
     color: var(--text-primary);
     background: rgba(255,255,255,0.06);
 }
+
 
 /* Selected Card Glow */
 .update-card.selected {

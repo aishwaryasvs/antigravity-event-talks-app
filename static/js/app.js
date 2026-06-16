@@ -30,6 +30,7 @@ const elements = {
     selectionCount: document.getElementById('selection-count'),
     btnTweetSelected: document.getElementById('btn-tweet-selected'),
     btnClearSelection: document.getElementById('btn-clear-selection'),
+    btnExportCSV: document.getElementById('btn-export-csv'),
     
     // Modal elements
     tweetModal: document.getElementById('tweet-modal'),
@@ -59,6 +60,9 @@ document.addEventListener('DOMContentLoaded', () => {
 function setupEventListeners() {
     // Refresh button
     elements.btnRefresh.addEventListener('click', () => fetchReleases(true));
+    
+    // CSV export
+    elements.btnExportCSV.addEventListener('click', exportFilteredToCSV);
     
     // Search filter
     elements.searchBox.addEventListener('input', (e) => {
@@ -308,7 +312,7 @@ function renderFeed() {
             
             // Card Event: Click to select (exclude clicks on links and action buttons)
             card.addEventListener('click', (e) => {
-                if (e.target.tagName === 'A' || e.target.closest('a') || e.target.closest('.btn-card-tweet')) {
+                if (e.target.tagName === 'A' || e.target.closest('a') || e.target.closest('.btn-card-tweet') || e.target.closest('.btn-card-copy')) {
                     return; // Prevent selecting card when clicking links/actions
                 }
                 toggleCardSelection(uniqueId);
@@ -339,6 +343,22 @@ function renderFeed() {
                 openTweetComposerForSingle(uniqueId);
             });
             actions.appendChild(btnCardTweet);
+            
+            // Copy Card Button
+            const btnCardCopy = document.createElement('button');
+            btnCardCopy.className = 'btn-card-copy';
+            btnCardCopy.title = 'Copy update to clipboard';
+            btnCardCopy.innerHTML = `
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+            `;
+            btnCardCopy.addEventListener('click', (e) => {
+                e.stopPropagation();
+                copyUpdateToClipboard(uniqueId, btnCardCopy);
+            });
+            actions.appendChild(btnCardCopy);
             
             // Custom selection Checkbox
             const checkboxLabel = document.createElement('label');
@@ -541,4 +561,87 @@ function publishTweet() {
     closeModal();
     // Proactively clear selection after a successful compose
     clearSelection();
+}
+
+// Copy update details to clipboard
+async function copyUpdateToClipboard(id, buttonEl) {
+    const item = state.allUpdatesMap[id];
+    if (!item) return;
+    
+    const textToCopy = `[BigQuery Release - ${item.type}] (${item.date})\n${item.text}\n\nRead more: ${item.link}`;
+    
+    try {
+        await navigator.clipboard.writeText(textToCopy);
+        
+        // Show success visual state
+        const originalHTML = buttonEl.innerHTML;
+        buttonEl.innerHTML = `
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+        `;
+        buttonEl.title = 'Copied!';
+        buttonEl.style.color = '#10b981';
+        
+        setTimeout(() => {
+            buttonEl.innerHTML = originalHTML;
+            buttonEl.title = 'Copy update to clipboard';
+            buttonEl.style.color = '';
+        }, 1500);
+    } catch (err) {
+        console.error('Failed to copy text: ', err);
+    }
+}
+
+// Export currently filtered releases to a CSV file
+function exportFilteredToCSV() {
+    const searchPattern = state.filters.search;
+    const csvRows = [];
+    
+    // Header
+    csvRows.push(['Date', 'Type', 'Content', 'Link'].map(h => `"${h.replace(/"/g, '""')}"`).join(','));
+    
+    state.releases.forEach(release => {
+        release.updates.forEach((update, idx) => {
+            // Check Type filter
+            const typeMatches = state.filters.types.has(update.type) || 
+                               (!['Feature', 'Issue', 'Change', 'Deprecated'].includes(update.type) && state.filters.types.has('Update'));
+            
+            // Check Keyword Search filter
+            let keywordMatches = true;
+            if (searchPattern) {
+                const textSearchable = (update.text + ' ' + update.type + ' ' + release.title).toLowerCase();
+                keywordMatches = textSearchable.includes(searchPattern);
+            }
+            
+            if (typeMatches && keywordMatches) {
+                // Escape fields for CSV format
+                const cleanDate = release.title.replace(/"/g, '""');
+                const cleanType = update.type.replace(/"/g, '""');
+                const cleanText = update.text.replace(/"/g, '""');
+                const cleanLink = release.link.replace(/"/g, '""');
+                
+                csvRows.push(`"${cleanDate}","${cleanType}","${cleanText}","${cleanLink}"`);
+            }
+        });
+    });
+    
+    if (csvRows.length <= 1) {
+        alert('No matching updates to export.');
+        return;
+    }
+    
+    // Create Blob and download
+    const csvContent = "\uFEFF" + csvRows.join("\n"); // Add BOM for Excel compatibility
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    
+    const dateStr = new Date().toISOString().slice(0, 10);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `bigquery_release_notes_${dateStr}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 }
