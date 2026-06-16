@@ -9,11 +9,15 @@ This application fetches BigQuery's official Atom XML feed, parses the contents 
 ## ⚡ Key Features
 
 - **📊 Intelligent Feed Slicer**: Traverses Google's release summaries and extracts individual update items categorized by type (`Feature`, `Issue`, `Change`, `Deprecated`, `Update`).
-- **🎨 Slate-Dark Glassmorphic UI**: High-tech responsive dashboard styling featuring custom glowing check checkboxes, live sync heartbeat animations, and ambient backdrop filters.
-- **🔍 Advanced Filtering**: Search feed notes instantly by keywords and toggle specific categories with real-time stat counts.
+- **🌓 Adaptive Light/Dark Theme**: Fluid theme toggle switch in the header that overrides CSS root variables, fades ambient glows, and saves selections in local storage.
+- **🎨 Glassmorphic UI**: High-tech responsive dashboard styling featuring custom category badges, glowing selection check outlines, and sync status heartbeat animations.
+- **🔍 Advanced Filtering**: Search feed notes instantly by keywords and toggle specific categories with real-time stats count updates.
+- **📋 Copy to Clipboard**: Instantly copy formatted update summaries, types, dates, and documentation URLs directly from individual card headers, with a visual checkmark feedback state.
+- **📥 Filtered CSV Export**: Download currently searched and filtered release updates as an Excel-compatible, BOM-prefixed CSV file stamped with the current date.
 - **✉️ Custom Tweet Composer**: Multi-select cards to automatically compile a combined summary tweet fitting within the 280-character limit, featuring a simulated compose modal with character counter and a radial progress ring.
 - **⚡ Client-Side Web Intent**: Bridges composed summaries straight to `x.com` without requiring developer API credentials or sign-in overhead.
 - **🌀 Caching Engine**: Implements a thread-safe in-memory cache valid for 10 minutes to bypass redundant feed requests, complete with a manual refresh override button.
+
 
 ---
 
